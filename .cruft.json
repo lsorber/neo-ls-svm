@@ -1,0 +1,32 @@
+{
+  "template": "https://github.com/radix-ai/poetry-cookiecutter",
+  "commit": "0168710e9b56ab046cd2cf34b60866805ec41f58",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "package_name": "Neo LS-SVM",
+      "package_description": "Neo LS-SVM",
+      "package_url": "https://github.com/lsorber/neo-ls-svm",
+      "author_name": "Laurent Sorber",
+      "author_email": "laurent.sorber@gmail.com",
+      "python_version": "3.10",
+      "docker_image": "python:$PYTHON_VERSION-slim",
+      "development_environment": "strict",
+      "with_conventional_commits": "1",
+      "with_fastapi_api": "0",
+      "with_jupyter_lab": "0",
+      "with_pydantic_typing": "0",
+      "with_sentry_logging": "0",
+      "with_streamlit_app": "0",
+      "with_typer_cli": "0",
+      "continuous_integration": "GitHub",
+      "docstring_style": "NumPy",
+      "private_package_repository_name": "",
+      "private_package_repository_url": "",
+      "__package_name_kebab_case": "neo-ls-svm",
+      "__package_name_snake_case": "neo_ls_svm",
+      "_template": "https://github.com/radix-ai/poetry-cookiecutter"
+    }
+  },
+  "directory": null
+}
