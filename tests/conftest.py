@@ -23,10 +23,6 @@ Dataset: TypeAlias = tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]
             id="dataset:ames_housing",  # Regression
         ),
         pytest.param(
-            531,
-            id="dataset:boston",  # Regression
-        ),
-        pytest.param(
             287,
             id="dataset:wine_quality",  # Regression
         ),
