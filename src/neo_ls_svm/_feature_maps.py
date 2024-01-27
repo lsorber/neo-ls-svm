@@ -161,10 +161,9 @@ class RandomFourierFeatures(KernelApproximatingFeatureMap):
             = φ(X)' (γI + φ(X)φ(X)')⁻¹y  with identity (γI + AB)⁻¹ A = A (γI + BA)⁻¹
             = φ(X)'a  where  a = (γI + φ(X)φ(X)')⁻¹y = (γI + k(xᵢ, xⱼ))⁻¹y
 
-         This means that k(x, y) = φ(x)'φ(y) by definition. Now we look for a φ(x) so that
-         k(x, y) = φ(x)'φ(y) for the Gaussian kernel k(x, y) = exp(- ||y - x||² / 2). If we take
-         h(x) := exp(1j ω'Re{x}) for a standard normally distributed variable ω, then we see that
-         [1]:
+        This means that k(x, y) = φ(x)'φ(y) by definition. Now we look for a φ(x) so that k(x, y) =
+        φ(x)'φ(y) for the Gaussian kernel k(x, y) = exp(- ||y - x||² / 2). If we take h(x) :=
+        exp(1j ω'Re{x}) for a standard normally distributed variable ω, then we see that [1]:
 
             = Eω[h(x)'h(y)]
             = Eω[exp(-1j Re{x}'ω) exp(1j ω'Re{y})]

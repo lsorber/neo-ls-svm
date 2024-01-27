@@ -18,9 +18,9 @@ class AffineNormalizer(AffineFeatureMap):
 
     Applies the transformation (x - shift) @ diag(1 / scale) to the input row x so that:
 
-      1. shift centers the features x so that the class bins are optimally separated, and
-      2. scale scales the shifted features x so that the difference between two samples from
-         different class bins is the separability between those class bins.
+        1. shift centers the features x so that the class bins are optimally separated, and
+        2. scale scales the shifted features x so that the difference between two samples from
+           different class bins is the separability between those class bins.
 
     To compute the shift and scale, the samples are first quantized into class bins. Then, each
     class bin's median and standard deviation are computed.
@@ -31,9 +31,9 @@ class AffineNormalizer(AffineFeatureMap):
 
     The separability of a pair of class bins is defined as:
 
-      np.abs(X_bins_μ[j] - X_bins_μ[i]) / (X_bins_o[i] + X_bins_o[j])
+        np.abs(X_bins_μ[j] - X_bins_μ[i]) / (X_bins_σ[i] + X_bins_σ[j])
 
-    where X_bins_μ[k] and X_bins_o[k] are the k'th class bin's center and standard deviation,
+    where X_bins_μ[k] and X_bins_σ[k] are the k'th class bin's center and standard deviation,
     respectively.
 
     The scale is analogously determined as a weighted sum of scales, where each scale is the sum of
