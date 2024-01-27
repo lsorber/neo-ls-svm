@@ -45,14 +45,14 @@ print(model.score(X_test, y_test))  # 81.8% (compared to sklearn.svm.SVR's -11.8
 
 ## Comparison of kernel method implementations
 
-| Kernel method           | Program type      | Classification/Regression | Large scale  | Probabilistic | Hyperparameter optimization |
-|-------------------------|-------------------|---------------------------|--------------|---------------|-----------------------------|
-| [SVC](https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html) / [SVR](https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVR.html) | Quadratic Program | ✅/✅ | ❌ | ❌ | ❌ |
-| [LinearSVC](https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html) / [LinearSVR](https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVR.html) + [Feature map](https://scikit-learn.org/stable/modules/classes.html#module-sklearn.kernel_approximation) | Quadratic Program | ✅/✅ | ✅ | ❌ | ❌ |
-| [KernelRidge](https://scikit-learn.org/stable/modules/generated/sklearn.kernel_ridge.KernelRidge.html) | Least Squares | ❌/✅ | ❌ | ❌ | ❌ |
-| [GaussianProcessClassifier](https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessClassifier.html) / [GaussianProcessRegressor](https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessRegressor.html) | Least Squares | ✅/✅ | ❌ | Bayesian | Multi-step |
-| [LS-SVMlab](https://www.esat.kuleuven.be/sista/lssvmlab/) | Least Squares | ✅/✅ | ✅ | Bayesian | Multi-step |
-| [NeoLSSVM](https://github.com/lsorber/neo-ls-svm) | Least Squares | ✅/✅ | ✅ | Conformal | Single-step |
+| Kernel method           | Unconstrained optimization | Classification / Regression | Large-scale  | Probabilistic | Hyperparameter optimization |
+|-------------------------|----------------------------|-----------------------------|--------------|---------------|-----------------------------|
+| [SVC](https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html) / [SVR](https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVR.html) | ❌ | ✅/✅ | ❌ | ❌ | ❌ |
+| [LinearSVC](https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html) / [LinearSVR](https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVR.html) + [Feature map](https://scikit-learn.org/stable/modules/classes.html#module-sklearn.kernel_approximation) | ❌ | ✅/✅ | ✅ | ❌ | ❌ |
+| [KernelRidge](https://scikit-learn.org/stable/modules/generated/sklearn.kernel_ridge.KernelRidge.html) | ✅ | ❌/✅ | ❌ | ❌ | ❌ |
+| [GaussianProcessClassifier](https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessClassifier.html) / [GaussianProcessRegressor](https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessRegressor.html) | ✅ | ✅/✅ | ❌ | Bayesian | Multi-step |
+| [LS-SVMlab](https://www.esat.kuleuven.be/sista/lssvmlab/) | ✅ | ✅/✅ | ✅ | Bayesian | Multi-step |
+| [NeoLSSVM](https://github.com/lsorber/neo-ls-svm) | ✅ | ✅/✅ | ✅ | Conformal | Single-step |
 
 Other kernel methods not included in the comparison above for lack of a readily available implementation include [RBF Networks](https://en.wikipedia.org/wiki/Radial_basis_function_network) ("Kernel Ridge Regression without a bias term") and [Relevance Vector Machines](https://en.wikipedia.org/wiki/Relevance_vector_machines) ("a Bayesian Support Vector Machine").
 
