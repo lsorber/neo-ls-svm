@@ -7,7 +7,9 @@ import pandas as pd
 import sklearn.datasets
 from lightgbm import LGBMRegressor
 from sklearn.base import clone
+from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.impute import MissingIndicator, SimpleImputer
+from sklearn.kernel_ridge import KernelRidge
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline, make_union
@@ -63,6 +65,16 @@ models = [
     {"name": "SVR", "pipeline": make_pipeline(clone(table_vectorizer), SVR())},
     {"name": "NeoLSSVM", "pipeline": make_pipeline(clone(table_vectorizer), NeoLSSVM())},
     {"name": "LGBMRegressor", "pipeline": LGBMRegressor(verbosity=-1)},
+    {
+        "name": "GaussianProcessRegressor",
+        "pipeline": make_pipeline(
+            clone(table_vectorizer), GaussianProcessRegressor(random_state=42)
+        ),
+    },
+    {
+        "name": "KernelRidge",
+        "pipeline": make_pipeline(clone(table_vectorizer), KernelRidge(kernel="rbf")),
+    },
 ]
 
 # Benchmark the models on the regression tasks.
@@ -84,9 +96,12 @@ for i, (task_id, task_version) in enumerate(regression_tasks):
         if X_train.size > 1_000_000:  # noqa: PLR2004
             print(f"Skipping {task_id} because it's too large...")  # noqa: T201
             continue
-        # Exit early if SVR is too slow.
-        if model["name"] == "SVR" and len(X_train) > 10_000:  # noqa: PLR2004
-            print(f"Skipping {task_id} because it's too large for SVM...")  # noqa: T201
+        # Exit early if solving the dual would be too slow.
+        if (
+            model["name"] in ("SVR", "GaussianProcessRegressor", "KernelRidge")
+            and len(X_train) > 10_000  # noqa: PLR2004
+        ):
+            print(f"Skipping {task_id} because it's too large to solve the dual...")  # noqa: T201
             continue
         # Clone the model.
         pipeline = clone(model["pipeline"])

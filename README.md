@@ -43,6 +43,19 @@ model.fit(X_train, y_train)
 print(model.score(X_test, y_test))  # 81.8% (compared to sklearn.svm.SVR's -11.8%)
 ```
 
+## Comparison of kernel method implementations
+
+| Kernel method           | Unconstrained optimization | Classification / Regression | Large-scale  | Probabilistic | Hyperparameter optimization |
+|-------------------------|----------------------------|-----------------------------|--------------|---------------|-----------------------------|
+| [SVC](https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html) / [SVR](https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVR.html) | ❌ | ✅/✅ | ❌ | ❌ | ❌ |
+| [LinearSVC](https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html) / [LinearSVR](https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVR.html) + [Feature map](https://scikit-learn.org/stable/modules/classes.html#module-sklearn.kernel_approximation) | ❌ | ✅/✅ | ✅ | ❌ | ❌ |
+| [KernelRidge](https://scikit-learn.org/stable/modules/generated/sklearn.kernel_ridge.KernelRidge.html) | ✅ | ❌/✅ | ❌ | ❌ | ❌ |
+| [GaussianProcessClassifier](https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessClassifier.html) / [GaussianProcessRegressor](https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessRegressor.html) | ✅ | ✅/✅ | ❌ | Bayesian | Multi-step |
+| [LS-SVMlab](https://www.esat.kuleuven.be/sista/lssvmlab/) | ✅ | ✅/✅ | ✅ | Bayesian | Multi-step |
+| [NeoLSSVM](https://github.com/lsorber/neo-ls-svm) | ✅ | ✅/✅ | ✅ | Conformal | Single-step |
+
+Other kernel methods not included in the comparison above for lack of a readily available implementation include [RBF Networks](https://en.wikipedia.org/wiki/Radial_basis_function_network) ("Kernel Ridge Regression without a bias term") and [Relevance Vector Machines](https://en.wikipedia.org/wiki/Relevance_vector_machines) ("a Bayesian Support Vector Machine").
+
 ## Benchmarks
 
 We select all binary classification and regression datasets below 1M entries from the [AutoML Benchmark](https://arxiv.org/abs/2207.12560). Each dataset is split into 85% for training and 15% for testing. We apply `skrub.TableVectorizer` as a preprocessing step for `neo_ls_svm.NeoLSSVM` and `sklearn.svm.SVC,SVR` to vectorize the pandas DataFrame training data into a NumPy array. Models are fitted only once on each dataset, with their default settings and no hyperparameter tuning.
@@ -83,28 +96,28 @@ ROC-AUC on 15% test set:
 
 R² on 15% test set:
 
-|                       dataset |   LGBMRegressor |        NeoLSSVM |              SVR |
-|------------------------------:|----------------:|----------------:|-----------------:|
-|                       abalone | 🥈 56.2% (0.1s) | 🥇 59.5% (1.1s) |     51.3% (0.2s) |
-|                        boston | 🥇 91.7% (0.2s) | 🥈 89.3% (0.4s) |     35.1% (0.0s) |
-|              brazilian_houses | 🥈 55.9% (0.4s) | 🥇 88.3% (1.5s) |      5.4% (2.0s) |
-|                      colleges | 🥇 58.5% (0.4s) | 🥈 43.7% (4.1s) |     40.2% (5.1s) |
-|                      diamonds | 🥇 98.2% (0.7s) | 🥈 95.2% (4.5s) |                / |
-|                     elevators | 🥇 87.7% (0.4s) | 🥈 82.6% (2.6s) |                / |
-|                     house_16h | 🥇 67.7% (0.3s) | 🥈 52.8% (2.4s) |                / |
-|          house_prices_nominal | 🥇 89.0% (0.6s) | 🥈 78.2% (1.3s) |     -2.9% (0.3s) |
-|                   house_sales | 🥇 89.2% (1.3s) | 🥈 77.8% (2.2s) |                / |
-|           mip-2016-regression | 🥇 59.2% (0.4s) | 🥈 34.9% (2.6s) |    -27.3% (0.1s) |
-|                     moneyball | 🥇 93.2% (0.2s) | 🥈 91.2% (0.6s) |      0.8% (0.1s) |
-|                           pol | 🥇 98.7% (0.3s) | 🥈 75.2% (1.7s) |                / |
-|                         quake |   -10.7% (0.2s) | 🥇 -0.1% (0.5s) | 🥈 -10.7% (0.0s) |
-| sat11-hand-runtime-regression | 🥇 78.3% (0.5s) | 🥈 61.7% (1.0s) |    -56.3% (1.0s) |
-|                       sensory | 🥇 29.2% (0.2s) |     3.8% (0.4s) |  🥈 16.4% (0.0s) |
-|                        socmob | 🥇 79.6% (0.2s) | 🥈 72.5% (1.5s) |     30.8% (0.0s) |
-|                      space_ga | 🥇 70.3% (0.2s) | 🥈 43.7% (0.6s) |     35.9% (0.1s) |
-|                       tecator | 🥈 98.3% (0.1s) | 🥇 99.4% (0.2s) |     78.5% (0.0s) |
-|                      us_crime | 🥈 62.8% (0.4s) | 🥇 63.0% (0.8s) |      6.7% (0.2s) |
-|                  wine_quality | 🥇 45.6% (0.6s) |    -8.0% (0.9s) |  🥈 16.4% (0.5s) |
+|                       dataset |   GaussianProcessRegressor |      KernelRidge |   LGBMRegressor |        NeoLSSVM |              SVR |
+|------------------------------:|---------------------------:|-----------------:|----------------:|----------------:|-----------------:|
+|                       abalone |            -2059.2% (1.0s) |     54.1% (0.8s) | 🥈 56.2% (0.1s) | 🥇 59.5% (1.1s) |     51.3% (0.2s) |
+|                        boston |             -679.3% (0.0s) |   -589.6% (0.1s) | 🥇 91.7% (0.2s) | 🥈 89.3% (0.3s) |     35.1% (0.0s) |
+|              brazilian_houses |            -128.8% (10.3s) |   -128.8% (6.5s) | 🥈 55.9% (0.2s) | 🥇 88.3% (1.2s) |      5.4% (1.9s) |
+|                      colleges |             -592.2% (9.3s) |   -592.2% (4.9s) | 🥇 58.5% (0.3s) | 🥈 42.4% (3.8s) |     40.2% (5.0s) |
+|                      diamonds |                          / |                / | 🥇 98.2% (0.3s) | 🥈 95.2% (4.1s) |                / |
+|                     elevators |                          / |                / | 🥇 87.7% (0.3s) | 🥈 82.6% (2.2s) |                / |
+|                     house_16h |                          / |                / | 🥇 67.7% (0.3s) | 🥈 52.8% (2.0s) |                / |
+|          house_prices_nominal |             -400.7% (0.3s) |   -399.1% (0.2s) | 🥇 89.0% (0.3s) | 🥈 78.2% (0.9s) |     -2.9% (0.3s) |
+|                   house_sales |                          / |                / | 🥇 89.2% (0.3s) | 🥈 77.8% (1.9s) |                / |
+|           mip-2016-regression |               12.2% (0.1s) |     12.3% (0.2s) | 🥇 59.2% (0.4s) | 🥈 34.9% (1.4s) |    -27.3% (0.1s) |
+|                     moneyball |            -5735.6% (0.1s) |  -1036.9% (0.2s) | 🥇 93.2% (0.2s) | 🥈 91.2% (0.6s) |      0.8% (0.1s) |
+|                           pol |                          / |                / | 🥇 98.7% (0.2s) | 🥈 75.2% (1.5s) |                / |
+|                         quake |           -77137.1% (0.1s) | -79656.3% (0.2s) |   -10.7% (0.2s) | 🥇 -0.1% (0.5s) | 🥈 -10.7% (0.0s) |
+| sat11-hand-runtime-regression |               57.7% (1.8s) |     60.2% (0.9s) | 🥇 78.3% (0.3s) | 🥈 61.7% (1.1s) |    -56.3% (1.0s) |
+|                       sensory |            -3400.0% (0.0s) |   -143.8% (0.2s) | 🥇 29.2% (0.1s) |     3.8% (0.4s) |  🥈 16.4% (0.0s) |
+|                        socmob |               11.7% (0.1s) |     26.7% (0.1s) | 🥇 79.6% (0.2s) | 🥈 72.5% (1.5s) |     30.8% (0.1s) |
+|                      space_ga |             -833.2% (0.3s) |   -833.2% (0.2s) | 🥇 70.3% (0.3s) | 🥈 43.7% (0.6s) |     35.9% (0.1s) |
+|                       tecator |             -109.0% (0.0s) |     94.1% (0.2s) | 🥈 98.3% (0.1s) | 🥇 99.4% (0.3s) |     78.5% (0.0s) |
+|                      us_crime |              -12.5% (0.4s) |     37.3% (0.3s) | 🥈 62.8% (0.5s) | 🥇 63.0% (0.9s) |      6.7% (0.2s) |
+|                  wine_quality |            -1774.5% (3.1s) |   -474.9% (2.0s) | 🥇 45.6% (0.2s) |    -8.0% (0.9s) |  🥈 16.4% (0.5s) |
 
 </details>
 

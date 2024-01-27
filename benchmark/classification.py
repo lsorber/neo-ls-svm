@@ -7,6 +7,7 @@ import pandas as pd
 import sklearn.datasets
 from lightgbm import LGBMClassifier
 from sklearn.base import clone
+from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.impute import MissingIndicator, SimpleImputer
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -70,6 +71,12 @@ models = [
     {"name": "SVC", "pipeline": make_pipeline(clone(table_vectorizer), SVC(probability=True))},
     {"name": "NeoLSSVM", "pipeline": make_pipeline(clone(table_vectorizer), NeoLSSVM())},
     {"name": "LGBMClassifier", "pipeline": LGBMClassifier(verbosity=-1)},
+    {
+        "name": "GaussianProcessClassifier",
+        "pipeline": make_pipeline(
+            clone(table_vectorizer), GaussianProcessClassifier(random_state=42)
+        ),
+    },
 ]
 
 # Benchmark the models on the classification tasks.
@@ -88,9 +95,11 @@ for i, (task_id, task_version) in enumerate(classification_tasks):
     # Benchmark each model.
     for model in models:
         print(f"Training on {task_id} with {model['name']} (shape={X_train.shape})...")  # noqa: T201
-        # Exit early if the dataset is too large.
-        if X_train.size > 1_000_000:  # noqa: PLR2004
-            print(f"Skipping {task_id} because it's too large...")  # noqa: T201
+        # Exit early if solving the dual would be too slow.
+        if (
+            model["name"] in ("SVC", "GaussianProcessClassifier") and len(X_train) > 10_000  # noqa: PLR2004
+        ):
+            print(f"Skipping {task_id} because it's too large to solve the dual...")  # noqa: T201
             continue
         # Exit early if SVR is too slow.
         if model["name"] == "SVC" and len(X_train) > 10_000:  # noqa: PLR2004
