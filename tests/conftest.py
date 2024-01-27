@@ -23,6 +23,10 @@ Dataset: TypeAlias = tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]
             id="dataset:ames_housing",  # Regression
         ),
         pytest.param(
+            531,
+            id="dataset:boston",  # Regression
+        ),
+        pytest.param(
             287,
             id="dataset:wine_quality",  # Regression
         ),
@@ -47,7 +51,7 @@ def dataset(request: SubRequest) -> Dataset:
         data_id=request.param, return_X_y=True, as_frame=True, parser="auto"
     )
     # Split in train and test set.
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
     return X_train, X_test, y_train, y_test
 
 

@@ -34,8 +34,8 @@ def _faster_svd(X: FloatMatrix[F]) -> tuple[FloatVector[F], FloatMatrix[F]]:
 
     This function is equivalent to:
 
-      _, s, VH = np.linalg.svd(X, full_matrices=False)
-      V = VH.conj().T
+        _, s, VH = np.linalg.svd(X, full_matrices=False)
+        V = VH.conj().T
     """
     if X.shape[0] >= X.shape[1]:  # Tall and skinny matrix X.
         e, V = np.linalg.eigh(X.conj().T @ X)
@@ -56,10 +56,10 @@ class AffineSeparator(AffineNormalizer):
 
     Applies the transformation (x - shift) @ diag(1 / scale) @ A to the input row x so that:
 
-      1. shift centers the features x so that the class bins are optimally separated,
-      2. scale scales the shifted features x so that the difference between two samples from
-         different class bins is the separability between those class bins, and
-      3. A transforms the shifted and scaled features x to optimally separate the labels y.
+        1. shift centers the features x so that the class bins are optimally separated,
+        2. scale scales the shifted features x so that the difference between two samples from
+           different class bins is the separability between those class bins, and
+        3. A transforms the shifted and scaled features x to optimally separate the labels y.
 
     The shift and scale are computed by AffineNormalizer.
 
@@ -77,13 +77,13 @@ class AffineSeparator(AffineNormalizer):
     evaluate to exp(-f(λA)/2) and exp(-g(λA)/2) in these two cases, respectively. We then choose the
     scalar λ so that it optimally separates the inter- and intra-bin samples as follows:
 
-      λ := argmin exp(-f(λA)/2) - exp(-g(λA)/2)
-      d/dλ exp(-f(λA)/2) - exp(-g(λA)/2) = 0
-      d/dλ exp(-λ²f(A)/2) - exp(-λ²g(A)/2) = 0
-      f exp(-λ²f/2) = g exp(-λ²g/2)
-      exp(λ²(f-g)/2) = f/g
-      λ²(f-g)/2 = log(f/g)
-      λ = sqrt(2 log(f/g) / (f-g))
+        λ := argmin exp(-f(λA)/2) - exp(-g(λA)/2)
+        d/dλ exp(-f(λA)/2) - exp(-g(λA)/2) = 0
+        d/dλ exp(-λ²f(A)/2) - exp(-λ²g(A)/2) = 0
+        f exp(-λ²f/2) = g exp(-λ²g/2)
+        exp(λ²(f-g)/2) = f/g
+        λ²(f-g)/2 = log(f/g)
+        λ = sqrt(2 log(f/g) / (f-g))
     """
 
     def __init__(  # noqa: PLR0913
