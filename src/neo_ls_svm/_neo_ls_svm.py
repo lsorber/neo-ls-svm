@@ -54,7 +54,6 @@ class NeoLSSVM(BaseEstimator):
         primal_feature_map: KernelApproximatingFeatureMap | None = None,
         dual_feature_map: AffineSeparator | None = None,
         dual: bool | None = None,
-        target_transformer: BaseEstimator | None = None,
         refit: bool = False,
         random_state: int | np.random.RandomState | None = 42,
         estimator_type: Literal["classifier", "regressor"] | None = None,
@@ -62,12 +61,11 @@ class NeoLSSVM(BaseEstimator):
         self.primal_feature_map = primal_feature_map
         self.dual_feature_map = dual_feature_map
         self.dual = dual
-        self.target_transformer = target_transformer
         self.refit = refit
         self.random_state = random_state
         self.estimator_type = estimator_type
 
-    def _optimize_β̂_γ(  # noqa: PLR0915
+    def _optimize_β̂_γ(
         self,
         φ: ComplexMatrix[C],
         y: FloatVector[F],
@@ -148,11 +146,6 @@ class NeoLSSVM(BaseEstimator):
         if self._estimator_type == "classifier":
             loo_residuals[(y > 0)[:, np.newaxis] & (loo_residuals > 0)] = 0
             loo_residuals[(y < 0)[:, np.newaxis] & (loo_residuals < 0)] = 0
-        # In the case of regression, undo the target transformation.
-        elif self._estimator_type == "regressor" and self.target_transformer is not None:
-            ŷ_loo = self.target_transformer_.inverse_transform(ŷ_loo)
-            y_true = self.target_transformer_.inverse_transform(y_true)
-            loo_residuals = ŷ_loo - y_true[:, np.newaxis]
         # Select γ that minimises the number of LOO misclassifications, the degree to which
         # LOO instances are misclassified, and the weighted absolute LOO error.
         self.loo_errors_γs_ = s @ np.abs(loo_residuals)
@@ -179,10 +172,6 @@ class NeoLSSVM(BaseEstimator):
         if self._estimator_type == "classifier":
             self.residuals_[(y > 0) & (self.residuals_ > 0)] = 0
             self.residuals_[(y < 0) & (self.residuals_ < 0)] = 0
-        elif self._estimator_type == "regressor" and self.target_transformer is not None:
-            self.residuals_ = (
-                self.target_transformer_.inverse_transform(y + self.residuals_) - y_true
-            )
         # TODO: Print warning if optimal γ is found at the edge.
         return β̂, γ
 
@@ -289,11 +278,6 @@ class NeoLSSVM(BaseEstimator):
         if self._estimator_type == "classifier":
             loo_residuals[(y > 0)[:, np.newaxis] & (loo_residuals > 0)] = 0
             loo_residuals[(y < 0)[:, np.newaxis] & (loo_residuals < 0)] = 0
-        # In the case of regression, undo the target transformation.
-        elif self._estimator_type == "regressor" and self.target_transformer is not None:
-            ŷ_loo = self.target_transformer_.inverse_transform(ŷ_loo)
-            y_true = self.target_transformer_.inverse_transform(y_true)
-            loo_residuals = ŷ_loo - y_true[:, np.newaxis]
         # Select γ that minimises the number of LOO misclassifications, the degree to which
         # LOO instances are misclassified, and the weighted absolute LOO error.
         self.loo_errors_γs_ = s @ np.abs(loo_residuals)
@@ -319,10 +303,6 @@ class NeoLSSVM(BaseEstimator):
         if self._estimator_type == "classifier":
             self.residuals_[(y > 0) & (self.residuals_ > 0)] = 0
             self.residuals_[(y < 0) & (self.residuals_ < 0)] = 0
-        elif self._estimator_type == "regressor" and self.target_transformer is not None:
-            self.residuals_ = (
-                self.target_transformer_.inverse_transform(y + self.residuals_) - y_true
-            )
         # TODO: Print warning if optimal γ is found at the edge.
         return α̂, γ
 
@@ -368,10 +348,6 @@ class NeoLSSVM(BaseEstimator):
         else:
             message = "Target type not supported"
             raise ValueError(message)
-        # Fit a robust target transformer if this estimator is a regressor.
-        if self._estimator_type == "regressor" and self.target_transformer is not None:
-            self.target_transformer_ = clone(self.target_transformer)
-            y_ = self.target_transformer_.fit_transform(y_)
         # Determine whether we want to solve this in the primal or dual space.
         self.dual_ = X.shape[0] <= 1024 if self.dual is None else self.dual  # noqa: PLR2004
         self.primal_ = not self.dual_
@@ -436,12 +412,8 @@ class NeoLSSVM(BaseEstimator):
             # Remap to the original class labels.
             ŷ = self.classes_[((ŷ_df + 1) // 2).astype(np.intp)]
         elif self._estimator_type == "regressor":
-            # Undo the target transformation.
-            ŷ = (
-                self.target_transformer_.inverse_transform(ŷ_df)
-                if hasattr(self, "target_transformer_")
-                else ŷ_df
-            )
+            # The decision function is the point prediction.
+            ŷ = ŷ_df
         # Map back to the training target dtype.
         ŷ = ŷ.astype(self.y_dtype_)
         return ŷ
