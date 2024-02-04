@@ -54,7 +54,6 @@ class NeoLSSVM(BaseEstimator):
         primal_feature_map: KernelApproximatingFeatureMap | None = None,
         dual_feature_map: AffineSeparator | None = None,
         dual: bool | None = None,
-        max_epochs: int = 1,
         refit: bool = False,
         random_state: int | np.random.RandomState | None = 42,
         estimator_type: Literal["classifier", "regressor"] | None = None,
@@ -62,7 +61,6 @@ class NeoLSSVM(BaseEstimator):
         self.primal_feature_map = primal_feature_map
         self.dual_feature_map = dual_feature_map
         self.dual = dual
-        self.max_epochs = max_epochs
         self.refit = refit
         self.random_state = random_state
         self.estimator_type = estimator_type
@@ -140,9 +138,7 @@ class NeoLSSVM(BaseEstimator):
         rγ = 1 / (self.γs_[np.newaxis, :] + λ[:, np.newaxis])
         with np.errstate(divide="ignore", invalid="ignore"):
             loo_residuals = (φβ̂ @ rγ - y[:, np.newaxis]) / (1 - h @ rγ)
-            loo_residuals = loo_residuals * self.y_scale_
-            y_true = y * self.y_scale_ + self.y_shift_
-            ŷ_loo = loo_residuals + y_true[:, np.newaxis]
+            ŷ_loo = y[:, np.newaxis] + loo_residuals
         # In the case of binary classification, clip overly positive and overly negative
         # predictions' residuals to 0 when the labels are positive and negative, respectively.
         if self._estimator_type == "classifier":
@@ -163,14 +159,14 @@ class NeoLSSVM(BaseEstimator):
         self.loo_leverage_ = h @ rγ[:, optimum]
         self.loo_error_ = self.loo_errors_γs_[optimum]
         if self._estimator_type == "classifier":
-            self.loo_score_ = accuracy_score(y_true, np.sign(ŷ_loo[:, optimum]), sample_weight=s)
+            self.loo_score_ = accuracy_score(y, np.sign(ŷ_loo[:, optimum]), sample_weight=s)
         elif self._estimator_type == "regressor":
-            self.loo_score_ = r2_score(y_true, ŷ_loo[:, optimum], sample_weight=s)
+            self.loo_score_ = r2_score(y, ŷ_loo[:, optimum], sample_weight=s)
         β̂, γ = β̂ @ rγ[:, optimum], self.γs_[optimum]
         # Resolve the linear system for better accuracy.
         if self.refit:
             β̂ = np.linalg.solve(γ * C + A, φSTSy)
-        self.residuals_ = (np.real(φ @ β̂) - y) * self.y_scale_
+        self.residuals_ = np.real(φ @ β̂) - y
         if self._estimator_type == "classifier":
             self.residuals_[(y > 0) & (self.residuals_ > 0)] = 0
             self.residuals_[(y < 0) & (self.residuals_ < 0)] = 0
@@ -273,9 +269,7 @@ class NeoLSSVM(BaseEstimator):
         np.fill_diagonal(F_loo, 0)
         α̂_loo = α̂ @ (1 / (self.γs_[np.newaxis, :] * ρ + λ[:, np.newaxis]))
         ŷ_loo = np.sum(F_loo[:, np.newaxis, :] * H_loo, axis=2) * α̂_loo + F_loo @ α̂_loo
-        ŷ_loo = ŷ_loo * self.y_scale_ + self.y_shift_
-        y_true = y * self.y_scale_ + self.y_shift_
-        loo_residuals = ŷ_loo - y_true[:, np.newaxis]
+        loo_residuals = ŷ_loo - y[:, np.newaxis]
         # In the case of binary classification, clip overly positive and overly negative
         # predictions' residuals to 0 when the labels are positive and negative, respectively.
         if self._estimator_type == "classifier":
@@ -295,21 +289,21 @@ class NeoLSSVM(BaseEstimator):
         self.loo_residuals_ = loo_residuals[:, optimum]
         self.loo_error_ = self.loo_errors_γs_[optimum]
         if self._estimator_type == "classifier":
-            self.loo_score_ = accuracy_score(y_true, np.sign(ŷ_loo[:, optimum]), sample_weight=s)
+            self.loo_score_ = accuracy_score(y, np.sign(ŷ_loo[:, optimum]), sample_weight=s)
         elif self._estimator_type == "regressor":
-            self.loo_score_ = r2_score(y_true, ŷ_loo[:, optimum], sample_weight=s)
+            self.loo_score_ = r2_score(y, ŷ_loo[:, optimum], sample_weight=s)
         α̂, γ = α̂_loo[:, optimum], self.γs_[optimum]
         # Resolve the linear system for better accuracy.
         if self.refit:
             α̂ = np.linalg.solve(γ * ρ * np.diag(sn**-2) + K, y)
-        self.residuals_ = (F @ α̂ - y) * self.y_scale_
+        self.residuals_ = F @ α̂ - y
         if self._estimator_type == "classifier":
             self.residuals_[(y > 0) & (self.residuals_ > 0)] = 0
             self.residuals_[(y < 0) & (self.residuals_ < 0)] = 0
         # TODO: Print warning if optimal γ is found at the edge.
         return α̂, γ
 
-    def fit(  # noqa: PLR0915
+    def fit(
         self, X: FloatMatrix[F], y: GenericVector, sample_weight: FloatVector[F] | None = None
     ) -> "NeoLSSVM":
         """Fit this predictor."""
@@ -347,19 +341,10 @@ class NeoLSSVM(BaseEstimator):
             y_ = np.ones(y.shape, dtype=X.dtype)
             y_[negatives] = -1
         elif self._estimator_type == "regressor":
-            y_ = cast(npt.NDArray[np.floating[Any]], y)
+            y_ = y.astype(X.dtype)
         else:
             message = "Target type not supported"
             raise ValueError(message)
-        # Fit robust shift and scale parameters for the target y.
-        if self._estimator_type == "classifier":
-            self.y_shift_: float = 0.0
-            self.y_scale_: float = 1.0
-        elif self._estimator_type == "regressor":
-            l, self.y_shift_, u = np.quantile(y_, [0.05, 0.5, 0.95])  # noqa: E741
-            self.y_scale_ = np.maximum(np.abs(l - self.y_shift_), np.abs(u - self.y_shift_))
-        self.y_scale_ = 1.0 if self.y_scale_ <= np.finfo(X.dtype).eps else self.y_scale_
-        y_ = ((y_ - self.y_shift_) / self.y_scale_).astype(X.dtype)
         # Determine whether we want to solve this in the primal or dual space.
         self.dual_ = X.shape[0] <= 1024 if self.dual is None else self.dual  # noqa: PLR2004
         self.primal_ = not self.dual_
@@ -390,7 +375,7 @@ class NeoLSSVM(BaseEstimator):
             self.predict_proba_calibrator_ = IsotonicRegression(
                 out_of_bounds="clip", y_min=0, y_max=1, increasing=True
             )
-            ŷ_loo = self.loo_residuals_ + y_
+            ŷ_loo = y_ + self.loo_residuals_
             target = np.zeros_like(y_)
             target[y_ == np.max(y_)] = 1.0
             self.predict_proba_calibrator_.fit(ŷ_loo, target, sample_weight_)
@@ -404,10 +389,11 @@ class NeoLSSVM(BaseEstimator):
             φ = cast(KernelApproximatingFeatureMap, self.primal_feature_map_).transform(X)
             ŷ = np.real(φ @ self.β̂_)
         else:
-            # Shift and scale X, then predict as ŷ(x) := k(x, X) â + 1'â.
+            # Apply an affine transformation to X, then predict as ŷ(x) := k(x, X) â + 1'â.
             X = cast(AffineFeatureMap, self.dual_feature_map_).transform(X)
             K = rbf_kernel(X, self.X_, gamma=0.5)
-            ŷ = K @ self.α̂_ + np.sum(self.α̂_)
+            b = np.sum(self.α̂_)
+            ŷ = K @ self.α̂_ + b
         return ŷ
 
     def predict(self, X: FloatMatrix[F]) -> GenericVector:
@@ -423,8 +409,8 @@ class NeoLSSVM(BaseEstimator):
             # Remap to the original class labels.
             ŷ = self.classes_[((ŷ_df + 1) // 2).astype(np.intp)]
         elif self._estimator_type == "regressor":
-            # Undo the label shift and scale.
-            ŷ = ŷ_df.astype(np.float64) * self.y_scale_ + self.y_shift_
+            # The decision function is the point prediction.
+            ŷ = ŷ_df
         # Map back to the training target dtype.
         ŷ = ŷ.astype(self.y_dtype_)
         return ŷ
