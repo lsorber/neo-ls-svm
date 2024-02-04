@@ -1,7 +1,7 @@
 """Affine feature map."""
 
 from functools import cached_property
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -86,7 +86,7 @@ class AffineFeatureMap(BaseEstimator, TransformerMixin):
                 if A.shape[1] < A.shape[0]
                 else (X - shift) @ (A / scale.T)
             )
-        )
+        ).astype(X.dtype)
         if self.append_features and A is not None:
             X_transformed = np.hstack((X, X_transformed))
         return X_transformed
@@ -108,7 +108,7 @@ class AffineFeatureMap(BaseEstimator, TransformerMixin):
             if A is not None:
                 pinvA = cast(FloatMatrix[F], self.pseudo_inverse)
                 X = X @ pinvA
-            X = (X * scale + shift).astype(shift.dtype)
+            X = (X * scale + shift).astype(X.dtype)
         return X
 
     def get_feature_names_out(
@@ -130,3 +130,7 @@ class AffineFeatureMap(BaseEstimator, TransformerMixin):
         if self.append_features and A is not None:
             output_features = np.hstack((input_features_array, output_features))
         return output_features
+
+    def _more_tags(self) -> dict[str, Any]:
+        # https://scikit-learn.org/stable/developers/develop.html#estimator-tags
+        return {"preserves_dtype": [np.float64, np.float32]}
