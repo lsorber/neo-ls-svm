@@ -138,9 +138,7 @@ class NeoLSSVM(BaseEstimator):
         rγ = 1 / (self.γs_[np.newaxis, :] + λ[:, np.newaxis])
         with np.errstate(divide="ignore", invalid="ignore"):
             loo_residuals = (φβ̂ @ rγ - y[:, np.newaxis]) / (1 - h @ rγ)
-            assert np.all(h @ rγ >= 0)  # TODO: Remove
             ŷ_loo = y[:, np.newaxis] + loo_residuals
-            y_true = y
         # In the case of binary classification, clip overly positive and overly negative
         # predictions' residuals to 0 when the labels are positive and negative, respectively.
         if self._estimator_type == "classifier":
@@ -161,9 +159,9 @@ class NeoLSSVM(BaseEstimator):
         self.loo_leverage_ = h @ rγ[:, optimum]
         self.loo_error_ = self.loo_errors_γs_[optimum]
         if self._estimator_type == "classifier":
-            self.loo_score_ = accuracy_score(y_true, np.sign(ŷ_loo[:, optimum]), sample_weight=s)
+            self.loo_score_ = accuracy_score(y, np.sign(ŷ_loo[:, optimum]), sample_weight=s)
         elif self._estimator_type == "regressor":
-            self.loo_score_ = r2_score(y_true, ŷ_loo[:, optimum], sample_weight=s)
+            self.loo_score_ = r2_score(y, ŷ_loo[:, optimum], sample_weight=s)
         β̂, γ = β̂ @ rγ[:, optimum], self.γs_[optimum]
         # Resolve the linear system for better accuracy.
         if self.refit:
@@ -271,8 +269,7 @@ class NeoLSSVM(BaseEstimator):
         np.fill_diagonal(F_loo, 0)
         α̂_loo = α̂ @ (1 / (self.γs_[np.newaxis, :] * ρ + λ[:, np.newaxis]))
         ŷ_loo = np.sum(F_loo[:, np.newaxis, :] * H_loo, axis=2) * α̂_loo + F_loo @ α̂_loo
-        y_true = y
-        loo_residuals = ŷ_loo - y_true[:, np.newaxis]
+        loo_residuals = ŷ_loo - y[:, np.newaxis]
         # In the case of binary classification, clip overly positive and overly negative
         # predictions' residuals to 0 when the labels are positive and negative, respectively.
         if self._estimator_type == "classifier":
@@ -292,9 +289,9 @@ class NeoLSSVM(BaseEstimator):
         self.loo_residuals_ = loo_residuals[:, optimum]
         self.loo_error_ = self.loo_errors_γs_[optimum]
         if self._estimator_type == "classifier":
-            self.loo_score_ = accuracy_score(y_true, np.sign(ŷ_loo[:, optimum]), sample_weight=s)
+            self.loo_score_ = accuracy_score(y, np.sign(ŷ_loo[:, optimum]), sample_weight=s)
         elif self._estimator_type == "regressor":
-            self.loo_score_ = r2_score(y_true, ŷ_loo[:, optimum], sample_weight=s)
+            self.loo_score_ = r2_score(y, ŷ_loo[:, optimum], sample_weight=s)
         α̂, γ = α̂_loo[:, optimum], self.γs_[optimum]
         # Resolve the linear system for better accuracy.
         if self.refit:
