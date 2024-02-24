@@ -153,13 +153,13 @@ class RandomFourierFeatures(KernelApproximatingFeatureMap):
     def transform(self, X: FloatMatrix[F]) -> ComplexMatrix[C]:
         """Transform a feature matrix X ∈ Rⁿˣᵈ into φ(X) ∈ Cⁿˣᴰ⁺¹ so that φ(X)ᵢ := [φ(xᵢ)' 1].
 
-        Notice that we can choose to solve an LS-SVM in the primal or dual space using the matrix
-        identity (γI + AB)⁻¹ A = A (γI + BA)⁻¹:
+        Notice that we can choose to solve an LS-SVM in the primal or dual space using the
+        push-through identity (γ𝕀 + AB)⁻¹ A = A (γ𝕀 + BA)⁻¹:
 
-            argmin ||y - φ(X)β̂||² + γ||β̂||²
-            = (γI + φ(X)'φ(X))⁻¹ φ(X)'y
-            = φ(X)' (γI + φ(X)φ(X)')⁻¹y  with identity (γI + AB)⁻¹ A = A (γI + BA)⁻¹
-            = φ(X)'a  where  a = (γI + φ(X)φ(X)')⁻¹y = (γI + k(xᵢ, xⱼ))⁻¹y
+            argmin ||φ(X)β̂ - y||² + γ||β̂||²
+            = (γ𝕀 + φ(X)'φ(X))⁻¹ φ(X)'y
+            = φ(X)' (γ𝕀 + φ(X)φ(X)')⁻¹y  with the identity  (γ𝕀 + AB)⁻¹ A = A (γ𝕀 + BA)⁻¹
+            = φ(X)'α̂  where  α̂ := (γ𝕀 + φ(X)φ(X)')⁻¹y = (γ𝕀 + k(xᵢ, xⱼ))⁻¹y
 
         This means that k(x, y) = φ(x)'φ(y) by definition. Now we look for a φ(x) so that k(x, y) =
         φ(x)'φ(y) for the Gaussian kernel k(x, y) = exp(- ||y - x||² / 2). If we take h(x) :=

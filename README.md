@@ -11,6 +11,7 @@ Neo LS-SVM is a modern [Least-Squares Support Vector Machine](https://en.wikiped
 5. 🌀 Learns an affine transformation of the feature matrix to optimally separate the target's bins.
 6. 🪞 Can solve the LS-SVM both in the primal and dual space.
 7. 🌡️ Isotonically calibrated `predict_proba` based on the leave-one-out predictions.
+8. 🎲 Asymmetric conformal Bayesian confidence intervals for classification and regression.
 
 ## Using
 
