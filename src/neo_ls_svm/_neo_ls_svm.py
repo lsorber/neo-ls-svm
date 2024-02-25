@@ -427,8 +427,6 @@ class NeoLSSVM(BaseEstimator):
     def predict_confidence_interval(
         self, X: FloatMatrix[F], *, confidence_level: float = 0.95
     ) -> FloatMatrix[F] | FloatTensor[F]:
-        # Compute the nonconformity measure for the given examples.
-        X_nonconformity = self.nonconformity_measure(X)[:, np.newaxis]
         # Determine the quantiles at the edge of the confidence interval.
         quantile = 1 - (1 - confidence_level) / 2
         # Lazily fit any missing conformal regressors.
@@ -438,23 +436,39 @@ class NeoLSSVM(BaseEstimator):
             if quantile not in quantile_regressors:
                 sgn = (self.loo_residuals_ > 0) if "⁺" in target_type else (self.loo_residuals_ < 0)
                 eps = np.finfo(self.loo_ŷ_.dtype).eps
-                quantile_regressors[quantile] = QuantileRegressor(
-                    quantile=quantile, alpha=np.sqrt(eps), solver="highs"
-                ).fit(
-                    self.loo_nonconformity_[sgn, np.newaxis],
+                X_qr = np.hstack(
+                    [
+                        self.loo_nonconformity_[sgn, np.newaxis],
+                        self.loo_ŷ_[sgn, np.newaxis],
+                        np.abs(self.loo_ŷ_[sgn, np.newaxis]),
+                        np.sign(self.loo_ŷ_[sgn, np.newaxis]),
+                    ]
+                )
+                y_qr = (
                     np.abs(self.loo_residuals_[sgn]) / np.maximum(np.abs(self.loo_ŷ_)[sgn], eps)
                     if "/ŷ" in target_type
-                    else np.abs(self.loo_residuals_[sgn]),
+                    else np.abs(self.loo_residuals_[sgn])
                 )
+                quantile_regressors[quantile] = QuantileRegressor(
+                    quantile=quantile, alpha=np.sqrt(eps), solver="highs"
+                ).fit(X_qr, y_qr)
         # Predict the confidence interval for the nonconformity measure.
         ŷ = self.decision_function(X)
+        X_qr = np.hstack(
+            [
+                self.nonconformity_measure(X)[:, np.newaxis],
+                ŷ[:, np.newaxis],
+                np.abs(ŷ[:, np.newaxis]),
+                np.sign(ŷ[:, np.newaxis]),
+            ]
+        )
         Δ_lower = np.minimum(
-            self.conformal_regressors_["Δ⁻"][quantile].predict(X_nonconformity),
-            np.abs(ŷ) * self.conformal_regressors_["Δ⁻/ŷ"][quantile].predict(X_nonconformity),
+            self.conformal_regressors_["Δ⁻"][quantile].predict(X_qr),
+            np.abs(ŷ) * self.conformal_regressors_["Δ⁻/ŷ"][quantile].predict(X_qr),
         )
         Δ_upper = np.minimum(
-            self.conformal_regressors_["Δ⁺"][quantile].predict(X_nonconformity),
-            np.abs(ŷ) * self.conformal_regressors_["Δ⁺/ŷ"][quantile].predict(X_nonconformity),
+            self.conformal_regressors_["Δ⁺"][quantile].predict(X_qr),
+            np.abs(ŷ) * self.conformal_regressors_["Δ⁺/ŷ"][quantile].predict(X_qr),
         )
         # Assemble the confidence interval.
         C = np.hstack(((ŷ - Δ_lower)[:, np.newaxis], (ŷ + Δ_upper)[:, np.newaxis]))

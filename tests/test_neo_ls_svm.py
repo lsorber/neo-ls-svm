@@ -39,22 +39,22 @@ def test_compare_neo_ls_svm_with_svm(dataset: Dataset, table_vectorizer: TableVe
     if multiclass:
         return
     confidence_level = 0.8
-    X_conf = neo_ls_svm_pipeline.predict_proba(
+    ŷ_conf = neo_ls_svm_pipeline.predict_proba(
         X_test, confidence_interval=True, confidence_level=confidence_level
     )
     if binary:
-        assert np.all(X_conf >= 0)
-        assert np.all(X_conf <= 1)
-        assert np.all(X_conf[:, 0, 0] <= X_conf[:, 1, 0])
-        assert np.all(X_conf[:, 0, 1] <= X_conf[:, 1, 1])
+        assert np.all(ŷ_conf >= 0)
+        assert np.all(ŷ_conf <= 1)
+        assert np.all(ŷ_conf[:, 0, 0] <= ŷ_conf[:, 1, 0])
+        assert np.all(ŷ_conf[:, 0, 1] <= ŷ_conf[:, 1, 1])
         is_neg = y_test == neo_ls_svm_pipeline.steps[-1][1].classes_[0]
         is_pos = ~is_neg
-        neg_covered = np.any(X_conf[:, :, 0] > 0.5, axis=1) & is_neg  # noqa: PLR2004
-        pos_covered = np.any(X_conf[:, :, 1] > 0.5, axis=1) & is_pos  # noqa: PLR2004
+        neg_covered = np.any(ŷ_conf[:, :, 0] > 0.5, axis=1) & is_neg  # noqa: PLR2004
+        pos_covered = np.any(ŷ_conf[:, :, 1] > 0.5, axis=1) & is_pos  # noqa: PLR2004
         covered = neg_covered | pos_covered
     elif not multiclass:
-        assert np.all(X_conf[:, 0] <= X_conf[:, 1])
-        covered = (X_conf[:, 0] <= y_test) & (y_test <= X_conf[:, 1])
+        assert np.all(ŷ_conf[:, 0] <= ŷ_conf[:, 1])
+        covered = (ŷ_conf[:, 0] <= y_test) & (y_test <= ŷ_conf[:, 1])
     coverage = np.mean(covered)
     assert coverage >= confidence_level
 
