@@ -43,8 +43,10 @@ typeguard = ">=3.0.2"
 
 [tool.poetry.group.dev.dependencies]  # https://python-poetry.org/docs/master/managing-dependencies/
 cruft = ">=2.14.0"
+ipykernel = ">=6.29.2"
 ipython = ">=8.19.0"
 lightgbm = ">=4.2.0"
+matplotlib = ">=3.8.3"
 pdoc = ">=13.1.1"
 tabulate = ">=0.9.0"
 viztracer = ">=0.16.1"
