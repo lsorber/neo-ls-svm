@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]  # https://python-poetry.org/docs/pyproject/
 name = "neo-ls-svm"
-version = "0.1.0"
+version = "0.2.0"
 description = "Neo LS-SVM"
 authors = ["Laurent Sorber <laurent.sorber@gmail.com>"]
 readme = "README.md"
@@ -14,7 +14,7 @@ repository = "https://github.com/lsorber/neo-ls-svm"
 bump_message = "bump(release): v$current_version → v$new_version"
 tag_format = "v$version"
 update_changelog_on_bump = true
-version = "0.1.0"
+version = "0.2.0"
 version_files = ["pyproject.toml:version"]
 
 [tool.poetry.dependencies]  # https://python-poetry.org/docs/dependency-specification/
