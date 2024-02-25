@@ -431,6 +431,7 @@ class NeoLSSVM(BaseEstimator):
         quantile = 1 - (1 - confidence_level) / 2
         # Lazily fit any missing conformal regressors.
         # TODO: Perhaps exclude samples that were used in the feature map.
+        # TODO: Perhaps enforce a positive slope for the nonconformity measure.
         for target_type in ("Δ⁺", "Δ⁻", "Δ⁺/ŷ", "Δ⁻/ŷ"):
             quantile_regressors = self.conformal_regressors_[target_type]
             if quantile not in quantile_regressors:
@@ -470,6 +471,7 @@ class NeoLSSVM(BaseEstimator):
             self.conformal_regressors_["Δ⁺"][quantile].predict(X_qr),
             np.abs(ŷ) * self.conformal_regressors_["Δ⁺/ŷ"][quantile].predict(X_qr),
         )
+        Δ_lower, Δ_upper = np.maximum(0, Δ_lower), np.maximum(0, Δ_upper)
         # Assemble the confidence interval.
         C = np.hstack(((ŷ - Δ_lower)[:, np.newaxis], (ŷ + Δ_upper)[:, np.newaxis]))
         # In case of classification, convert the decision function values to probabilities.
