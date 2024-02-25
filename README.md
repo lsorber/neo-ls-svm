@@ -15,34 +15,91 @@ Neo LS-SVM is a modern [Least-Squares Support Vector Machine](https://en.wikiped
 
 ## Using
 
+### Installing
+
 First, install this package with:
 ```bash
 pip install neo-ls-svm
 ```
 
+### Classification and regression
+
 Then, you can import `neo_ls_svm.NeoLSSVM` as an sklearn-compatible binary classifier and regressor. Example usage:
 
 ```python
 from neo_ls_svm import NeoLSSVM
+from pandas import get_dummies
 from sklearn.datasets import fetch_openml
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
-from skrub import TableVectorizer  # Vectorizes a pandas DataFrame into a NumPy array.
 
 # Binary classification example:
-X, y = fetch_openml("credit-g", version=1, return_X_y=True, as_frame=True, parser="auto")
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
-model = make_pipeline(TableVectorizer(), NeoLSSVM())
-model.fit(X_train, y_train)
-print(model.score(X_test, y_test))  # 76.7% (compared to sklearn.svm.SVC's 70.7%)
+X, y = fetch_openml("churn", version=3, return_X_y=True, as_frame=True, parser="auto")
+X_train, X_test, y_train, y_test = train_test_split(get_dummies(X), y, test_size=0.15, random_state=42)
+model = NeoLSSVM().fit(X_train, y_train)
+model.score(X_test, y_test)  # 93.1% (compared to sklearn.svm.SVC's 89.6%)
 
 # Regression example:
 X, y = fetch_openml("ames_housing", version=1, return_X_y=True, as_frame=True, parser="auto")
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
-model = make_pipeline(TableVectorizer(), NeoLSSVM())
-model.fit(X_train, y_train)
-print(model.score(X_test, y_test))  # 81.8% (compared to sklearn.svm.SVR's -11.8%)
+X_train, X_test, y_train, y_test = train_test_split(get_dummies(X), y, test_size=0.15, random_state=42)
+model = NeoLSSVM().fit(X_train, y_train)
+model.score(X_test, y_test)  # 82.4% (compared to sklearn.svm.SVR's -11.8%)
 ```
+
+### Confidence intervals
+
+Neo LS-SVM implements conformal prediction with a Bayesian nonconformity estimate to compute confidence intervals for both classification and regression. Example usage:
+
+```python
+from neo_ls_svm import NeoLSSVM
+from pandas import get_dummies
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split
+
+# Load a regression problem and split in train and test.
+X, y = fetch_openml("ames_housing", version=1, return_X_y=True, as_frame=True, parser="auto")
+X_train, X_test, y_train, y_test = train_test_split(get_dummies(X), y, test_size=50, random_state=42)
+
+# Fit a Neo LS-SVM model.
+model = NeoLSSVM().fit(X_train, y_train)
+
+# Predict the house prices and confidence intervals on the test set.
+ŷ = model.predict(X_test)
+ŷ_conf = model.predict_proba(X_test, confidence_interval=True, confidence_level=0.95)
+# ŷ_conf[:, 0] and ŷ_conf[:, 1] are the lower and upper bound of the confidence interval for the predictions ŷ, respectively
+```
+
+Let's visualize the confidence intervals on the test set:
+
+<img src="https://github.com/lsorber/neo-ls-svm/assets/4543654/472bf358-34d7-4a1a-8b5c-595fe65dbf77" width="512">
+
+<details>
+<summary>Expand to see the code that generated the above graph.</summary>
+
+```python
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+import numpy as np
+
+idx = np.argsort(-ŷ)
+y_ticks = np.arange(1, len(X_test) + 1)
+plt.figure(figsize=(4, 5))
+plt.barh(y_ticks, ŷ_conf[idx, 1] - ŷ_conf[idx, 0], left=ŷ_conf[idx, 0], label="95% Confidence interval", color="lightblue")
+plt.plot(y_test.iloc[idx], y_ticks, "s", markersize=3, markerfacecolor="none", markeredgecolor="cornflowerblue", label="Actual value")
+plt.plot(ŷ[idx], y_ticks, "s", color="mediumblue", markersize=0.6, label="Predicted value")
+plt.xlabel("House price")
+plt.ylabel("Test house index")
+plt.yticks(y_ticks, y_ticks)
+plt.tick_params(axis="y", labelsize=6)
+plt.grid(axis="x", color="lightsteelblue", linestyle=":", linewidth=0.5)
+plt.gca().xaxis.set_major_formatter(ticker.StrMethodFormatter('${x:,.0f}'))
+plt.gca().spines["top"].set_visible(False)
+plt.gca().spines["right"].set_visible(False)
+plt.legend()
+plt.tight_layout()
+plt.show()
+```
+</details>
 
 ## Benchmarks
 
