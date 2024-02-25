@@ -31,7 +31,6 @@ from neo_ls_svm import NeoLSSVM
 from pandas import get_dummies
 from sklearn.datasets import fetch_openml
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import make_pipeline
 
 # Binary classification example:
 X, y = fetch_openml("churn", version=3, return_X_y=True, as_frame=True, parser="auto")
