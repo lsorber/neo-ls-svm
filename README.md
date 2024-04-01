@@ -70,7 +70,7 @@ When the input data is a pandas DataFrame, the output is also a pandas DataFrame
 
 Let's visualize the predicted quantiles on the test set:
 
-<img src="https://github.com/radix-ai/conformal-tights/assets/4543654/af22b3c8-7bc6-44fd-b96b-24e8d28bc1fd" width="512">
+<img src="https://github.com/lsorber/neo-ls-svm/assets/4543654/cd24e739-e857-4045-8a70-07e92367a901" width="512">
 
 <details>
 <summary>Expand to see the code that generated the graph above</summary>
