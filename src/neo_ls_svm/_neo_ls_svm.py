@@ -1,19 +1,25 @@
 """Neo LS-SVM."""
 
-from typing import Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast, overload
 
 import numpy as np
 import numpy.typing as npt
 from scipy.linalg import cho_factor, cho_solve, eigh, lu_factor, lu_solve
 from sklearn.base import BaseEstimator, clone
 from sklearn.isotonic import IsotonicRegression
-from sklearn.linear_model import QuantileRegressor
 from sklearn.metrics import accuracy_score, r2_score
 from sklearn.metrics.pairwise import euclidean_distances, rbf_kernel
-from sklearn.utils.validation import check_consistent_length, check_X_y
+from sklearn.model_selection import train_test_split
+from sklearn.utils.validation import (
+    check_array,
+    check_consistent_length,
+    check_is_fitted,
+    check_X_y,
+)
 
 from neo_ls_svm._affine_feature_map import AffineFeatureMap
 from neo_ls_svm._affine_separator import AffineSeparator
+from neo_ls_svm._coherent_linear_quantile_regressor import CoherentLinearQuantileRegressor
 from neo_ls_svm._feature_maps import (
     KernelApproximatingFeatureMap,
     OrthogonalRandomFourierFeatures,
@@ -26,6 +32,9 @@ from neo_ls_svm._typing import (
     FloatVector,
     GenericVector,
 )
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 C = TypeVar("C", np.complex64, np.complex128)
 F = TypeVar("F", np.float32, np.float64)
@@ -44,8 +53,10 @@ class NeoLSSVM(BaseEstimator):
         5. 🌀 Learns an affine transformation of the feature matrix to optimally separate the
              target's bins.
         6. 🪞 Can solve the LS-SVM both in the primal and dual space.
-        7. 🌡️ Isotonically calibrated `predict_proba` based on the leave-one-out predictions.
-        8. 🎲 Asymmetric conformal Bayesian confidence intervals for classification and regression.
+        7. 🌡️ Isotonically calibrated `predict_proba`.
+        8. ✅ Conformally calibrated `predict_quantiles` and `predict_interval`.
+        9. 🔔 Bayesian estimation of the predictive standard deviation with `predict_std`.
+        10. 🐼 Pandas DataFrame output when the input is a pandas DataFrame.
     """
 
     def __init__(  # noqa: PLR0913
@@ -169,11 +180,11 @@ class NeoLSSVM(BaseEstimator):
         if self._estimator_type == "classifier":
             self.residuals_[(y > 0) & (self.residuals_ > 0)] = 0
             self.residuals_[(y < 0) & (self.residuals_ < 0)] = 0
-        # Compute the leave-one-out nonconformity with the Sherman-Morrison formula.
+        # Compute the leave-one-out predictive standard deviation with the Sherman-Morrison formula.
         σ2 = np.real(np.sum(φ * cho_solve(self.L_, φ.conj().T).T, axis=1))
         σ2 = np.ascontiguousarray(σ2)
         loo_σ2 = σ2 + (s * σ2) ** 2 / (1 - self.loo_leverage_)
-        self.loo_nonconformity_ = np.sqrt(loo_σ2)
+        self.loo_std_ = np.sqrt(loo_σ2)
         # TODO: Print warning if optimal γ is found at the edge.
         return β̂, γ
 
@@ -305,19 +316,23 @@ class NeoLSSVM(BaseEstimator):
         if self._estimator_type == "classifier":
             self.residuals_[(y > 0) & (self.residuals_ > 0)] = 0
             self.residuals_[(y < 0) & (self.residuals_ < 0)] = 0
-        # Compute the nonconformity. TODO: Apply a leave-one-out correction.
-        K = rbf_kernel(X, X, gamma=0.5)
+        # Compute the leave-one-out predictive standard deviation.
+        # TODO: Apply a leave-one-out correction.
+        K = rbf_kernel(X, gamma=0.5)
         σ2 = 1.0 - np.sum(K * cho_solve(self.L_, K.T).T, axis=1)
-        self.loo_nonconformity_ = np.sqrt(σ2)
+        self.loo_std_ = np.sqrt(σ2)
         # TODO: Print warning if optimal γ is found at the edge.
         return α̂, γ
 
     def fit(
-        self, X: FloatMatrix[F], y: GenericVector, sample_weight: FloatVector[F] | None = None
+        self,
+        X: "FloatMatrix[F] | pd.DataFrame",
+        y: "GenericVector | pd.Series",
+        sample_weight: "FloatVector[F] | pd.Series | None" = None,
     ) -> "NeoLSSVM":
         """Fit this predictor."""
         # Remove singleton dimensions from y and validate input.
-        X, y = check_X_y(X, y, dtype=(np.float64, np.float32))
+        X, y = check_X_y(X, y, dtype=(np.float64, np.float32), ensure_min_samples=2)
         y = np.ravel(np.asarray(y))
         self.n_features_in_ = X.shape[1]
         # Store the target's dtype for prediction.
@@ -395,19 +410,56 @@ class NeoLSSVM(BaseEstimator):
             target = np.zeros_like(y_)
             target[y_ == np.max(y_)] = 1.0
             self.predict_proba_calibrator_.fit(self.loo_ŷ_, target, sample_weight_)
-        # Lazily fit conformal predictors as quantile regression models that predict the lower and
-        # upper bounds of the (relative) leave-one-out residuals.
-        self.conformal_regressors_: dict[str, dict[float, QuantileRegressor]] = {
-            "Δ⁺": {},
-            "Δ⁻": {},
-            "Δ⁺/ŷ": {},
-            "Δ⁻/ŷ": {},
+        # Split the leave-one-out predictions into two conformal calibration levels.
+        (
+            self.nonconformity_calib_l1_,
+            self.nonconformity_calib_l2_,
+            self.ŷ_calib_l1_,
+            self.ŷ_calib_l2_,
+            self.residuals_calib_l1_,
+            self.residuals_calib_l2_,
+            self.sample_weight_calib_l1_,
+            self.sample_weight_calib_l2_,
+        ) = train_test_split(
+            self.loo_std_,
+            self.loo_ŷ_,
+            self.loo_residuals_,
+            sample_weight_,
+            train_size=min(1440, max(1024, (X.shape[0] * 2) // 3), X.shape[0] - 1),
+            random_state=self.random_state,
+        )
+        # Lazily fit level 1 conformal predictors as coherent linear quantile regression models that
+        # predict quantiles of the (relative) residuals given the nonconformity estimates, and
+        # level 2 conformal biases.
+        self.conformal_l1_: dict[str, dict[tuple[float, ...], CoherentLinearQuantileRegressor]] = {
+            "Δŷ": {},
+            "Δŷ/ŷ": {},
+        }
+        self.conformal_l2_: dict[str, dict[tuple[float, ...], FloatVector[F]]] = {
+            "Δŷ": {},
+            "Δŷ/ŷ": {},
         }
         return self
 
-    def nonconformity_measure(self, X: FloatMatrix[F]) -> FloatVector[F]:
-        """Compute the nonconformity of a set of examples."""
-        # Estimate the nonconformity as the variance of this model's Gaussian Process.
+    @overload
+    def predict_std(self, X: FloatMatrix[F]) -> FloatVector[F]:
+        ...
+
+    @overload
+    def predict_std(self, X: "pd.DataFrame") -> "pd.Series":
+        ...
+
+    def predict_std(self, X: "FloatMatrix[F] | pd.DataFrame") -> "FloatVector[F] | pd.Series":
+        """Compute a Bayesian estimate of the standard deviation of the predictive distribution.
+
+        Note that the Bayesian estimate of the predictive standard deviation is based on several
+        assumptions and is not calibrated. As a consequence, it is unlikely to be an accurate
+        estimation of the standard deviation as is. However, it may be useful as a nonconformity
+        estimate for conformally calibrated prediction of quantiles or intervals.
+        """
+        # Estimate the predictive variance of the predictive distribution p(ŷ(x)).
+        check_is_fitted(self)
+        X, X_df = check_array(X, dtype=(np.float64, np.float32)), X
         σ2: FloatVector[F]
         if self.primal_:
             # If β̂ := (LL')⁻¹ y* and cov(y*) := LL', then cov(β̂) = cov((LL')⁻¹ y*) = (LL')⁻¹
@@ -416,78 +468,195 @@ class NeoLSSVM(BaseEstimator):
             σ2 = np.real(np.sum(φH * cho_solve(self.L_, φH.conj().T).T, axis=1))
             σ2 = np.ascontiguousarray(σ2)
         else:
-            # Compute the cov(ŷ(x)) as K(x, x) − K(x, X) (LL')⁻¹ K(X, x). TODO: Document derivation.
+            # Compute the cov(ŷ(x)) as K(x, x) − K(x, X) (LL')⁻¹ K(X, x).
+            # TODO: Document derivation.
             X = cast(AffineFeatureMap, self.dual_feature_map_).transform(X)
             K = rbf_kernel(X, self.X_, gamma=0.5)
             σ2 = 1.0 - np.sum(K * cho_solve(self.L_, K.T).T, axis=1)
         # Convert the variance to a standard deviation.
         σ = np.sqrt(σ2)
+        # Convert to a pandas Series if the input was a pandas DataFrame.
+        if hasattr(X_df, "dtypes") and hasattr(X_df, "index"):
+            try:
+                import pandas as pd
+            except ImportError:
+                pass
+            else:
+                σ_series = pd.Series(σ, index=X_df.index)
+                return σ_series
         return σ
 
-    def predict_confidence_interval(
-        self, X: FloatMatrix[F], *, confidence_level: float = 0.95
+    def _lazily_fit_conformal_predictor(
+        self, target_type: str, quantiles: npt.ArrayLike
+    ) -> tuple[CoherentLinearQuantileRegressor, FloatVector[F]]:
+        """Lazily fit a conformal predictor for a given array of quantiles."""
+        quantiles = np.asarray(quantiles)
+        quantiles_tuple = tuple(quantiles)
+        if quantiles_tuple in self.conformal_l1_[target_type]:
+            # Retrieve level 1 and level 2.
+            cqr_l1 = self.conformal_l1_[target_type][quantiles_tuple]
+            bias_l2 = self.conformal_l2_[target_type][quantiles_tuple]
+        else:
+            # Fit level 1: a coherent quantile regressor that predicts quantiles of the (relative)
+            # residuals.
+            eps = np.finfo(self.ŷ_calib_l1_.dtype).eps
+            abs_ŷ_calib_l1 = np.maximum(np.abs(self.ŷ_calib_l1_), eps)
+            X_cqr_l1 = self.nonconformity_calib_l1_[:, np.newaxis]
+            if self._estimator_type == "regressor":
+                X_cqr_l1 = np.hstack([X_cqr_l1, np.abs(self.ŷ_calib_l1_[:, np.newaxis])])
+            y_cqr_l1 = -self.residuals_calib_l1_ / (abs_ŷ_calib_l1 if "/ŷ" in target_type else 1)
+            cqr_l1 = CoherentLinearQuantileRegressor(quantiles=quantiles)
+            cqr_l1.fit(X_cqr_l1, y_cqr_l1, sample_weight=self.sample_weight_calib_l1_)
+            self.conformal_l1_[target_type][quantiles_tuple] = cqr_l1
+            # Fit level 2: a per-quantile conformal bias on top of the level 1 conformal quantile
+            # predictions of the (relative) residuals.
+            bias_l2 = np.zeros(quantiles.shape, dtype=self.ŷ_calib_l1_.dtype)
+            if len(self.ŷ_calib_l2_) >= 128:  # noqa: PLR2004
+                abs_ŷ_calib_l2 = np.maximum(np.abs(self.ŷ_calib_l2_), eps)
+                X_cqr_l2 = self.nonconformity_calib_l2_[:, np.newaxis]
+                if self._estimator_type == "regressor":
+                    X_cqr_l2 = np.hstack([X_cqr_l2, np.abs(self.ŷ_calib_l2_[:, np.newaxis])])
+                y_cqr_l2 = -self.residuals_calib_l2_ / (
+                    abs_ŷ_calib_l2 if "/ŷ" in target_type else 1
+                )
+                Δŷ_calib_l2_quantiles = cqr_l1.predict(X_cqr_l2)
+                intercept_clip = cqr_l1.intercept_clip(
+                    np.vstack([X_cqr_l1, X_cqr_l2]), np.hstack([y_cqr_l1, y_cqr_l2])
+                )
+                for j, quantile in enumerate(quantiles):
+                    # Clip the bias to retain quantile coherence.
+                    # TODO: Use a weighted quantile.
+                    intercept_l2 = np.quantile(y_cqr_l2 - Δŷ_calib_l2_quantiles[:, j], quantile)
+                    bias_l2[j] = np.clip(intercept_l2, intercept_clip[0, j], intercept_clip[1, j])
+            self.conformal_l2_[target_type][quantiles_tuple] = bias_l2
+        return cqr_l1, bias_l2  # type: ignore[return-value]
+
+    @overload
+    def predict_quantiles(
+        self,
+        X: FloatMatrix[F],
+        *,
+        quantiles: npt.ArrayLike = (0.025, 0.5, 0.975),
+        priority: Literal["accuracy", "coverage"] = "accuracy",
     ) -> FloatMatrix[F] | FloatTensor[F]:
-        # Determine the quantiles at the edge of the confidence interval.
-        quantile = 1 - (1 - confidence_level) / 2
-        # Lazily fit any missing conformal regressors.
-        # TODO: Perhaps exclude samples that were used in the feature map.
-        # TODO: Perhaps enforce a positive slope for the nonconformity measure.
-        for target_type in ("Δ⁺", "Δ⁻", "Δ⁺/ŷ", "Δ⁻/ŷ"):
-            quantile_regressors = self.conformal_regressors_[target_type]
-            if quantile not in quantile_regressors:
-                sgn = (self.loo_residuals_ > 0) if "⁺" in target_type else (self.loo_residuals_ < 0)
-                eps = np.finfo(self.loo_ŷ_.dtype).eps
-                X_qr = np.hstack(
-                    [
-                        self.loo_nonconformity_[sgn, np.newaxis],
-                        self.loo_ŷ_[sgn, np.newaxis],
-                        np.abs(self.loo_ŷ_[sgn, np.newaxis]),
-                        np.sign(self.loo_ŷ_[sgn, np.newaxis]),
-                    ]
-                )
-                y_qr = (
-                    np.abs(self.loo_residuals_[sgn]) / np.maximum(np.abs(self.loo_ŷ_)[sgn], eps)
-                    if "/ŷ" in target_type
-                    else np.abs(self.loo_residuals_[sgn])
-                )
-                quantile_regressors[quantile] = QuantileRegressor(
-                    quantile=quantile, alpha=np.sqrt(eps), solver="highs"
-                ).fit(X_qr, y_qr)
-        # Predict the confidence interval for the nonconformity measure.
+        ...
+
+    @overload
+    def predict_quantiles(
+        self,
+        X: "pd.DataFrame",
+        *,
+        quantiles: npt.ArrayLike = (0.025, 0.5, 0.975),
+        priority: Literal["accuracy", "coverage"] = "accuracy",
+    ) -> "pd.DataFrame":
+        ...
+
+    def predict_quantiles(
+        self,
+        X: "FloatMatrix[F] | pd.DataFrame",
+        *,
+        quantiles: npt.ArrayLike = (0.025, 0.5, 0.975),
+        priority: Literal["accuracy", "coverage"] = "accuracy",
+    ) -> "FloatMatrix[F] | FloatTensor[F] | pd.DataFrame":
+        """Predict conformally calibrated quantiles."""
+        # Predict the absolute and relative quantiles.
+        check_is_fitted(self)
+        X, X_df = check_array(X, dtype=(np.float64, np.float32)), X
         ŷ = self.decision_function(X)
-        X_qr = np.hstack(
+        X_cqr = self.predict_std(X)[:, np.newaxis]
+        if self._estimator_type == "regressor":
+            X_cqr = np.hstack([X_cqr, np.abs(ŷ[:, np.newaxis])])
+        cqr_abs, bias_abs = self._lazily_fit_conformal_predictor("Δŷ", quantiles)
+        cqr_rel, bias_rel = self._lazily_fit_conformal_predictor("Δŷ/ŷ", quantiles)
+        if priority == "coverage":  # Only allow quantile expansion when the priority is coverage.
+            center = 0.5
+            quantiles = np.asarray(quantiles)
+            bias_abs[center <= quantiles] = np.maximum(bias_abs[center <= quantiles], 0)
+            bias_abs[quantiles <= center] = np.minimum(bias_abs[quantiles <= center], 0)
+            bias_rel[center <= quantiles] = np.maximum(bias_rel[center <= quantiles], 0)
+            bias_rel[quantiles <= center] = np.minimum(bias_rel[quantiles <= center], 0)
+        Δŷ_quantiles = np.dstack(
             [
-                self.nonconformity_measure(X)[:, np.newaxis],
-                ŷ[:, np.newaxis],
-                np.abs(ŷ[:, np.newaxis]),
-                np.sign(ŷ[:, np.newaxis]),
+                cqr_abs.predict(X_cqr) + bias_abs[np.newaxis, :],
+                np.abs(ŷ[:, np.newaxis]) * (cqr_rel.predict(X_cqr) + bias_rel[np.newaxis, :]),
             ]
         )
-        Δ_lower = np.minimum(
-            self.conformal_regressors_["Δ⁻"][quantile].predict(X_qr),
-            np.abs(ŷ) * self.conformal_regressors_["Δ⁻/ŷ"][quantile].predict(X_qr),
-        )
-        Δ_upper = np.minimum(
-            self.conformal_regressors_["Δ⁺"][quantile].predict(X_qr),
-            np.abs(ŷ) * self.conformal_regressors_["Δ⁺/ŷ"][quantile].predict(X_qr),
-        )
-        Δ_lower, Δ_upper = np.maximum(0, Δ_lower), np.maximum(0, Δ_upper)
-        # Assemble the confidence interval.
-        C = np.hstack(((ŷ - Δ_lower)[:, np.newaxis], (ŷ + Δ_upper)[:, np.newaxis]))
-        # In case of classification, convert the decision function values to probabilities.
+        # Choose between the the absolute and relative quantiles for each example in order to
+        # minimise the dispersion of the predicted quantiles.
+        dispersion = np.std(Δŷ_quantiles, axis=1)
+        Δŷ_quantiles = Δŷ_quantiles[
+            np.arange(Δŷ_quantiles.shape[0]), :, np.argmin(dispersion, axis=-1)
+        ]
+        ŷ_quantiles: FloatMatrix[F] = ŷ[:, np.newaxis] + Δŷ_quantiles
+        # In case of classification, convert the decision function values to an
+        # example x quantile x class probability tensor.
         if self._estimator_type == "classifier":
-            C = np.hstack(
+            ŷ_quantiles = np.hstack(
                 [
-                    self.predict_proba_calibrator_.transform(C[:, 0])[:, np.newaxis],
-                    self.predict_proba_calibrator_.transform(C[:, 1])[:, np.newaxis],
+                    self.predict_proba_calibrator_.transform(ŷ_quantiles[:, j])[:, np.newaxis]
+                    for j in range(ŷ_quantiles.shape[1])
                 ]
             )
-            C = np.dstack([1 - C[:, ::-1], C])
-        return C
+            ŷ_quantiles = np.dstack([1 - ŷ_quantiles[:, ::-1], ŷ_quantiles])
+        # In case of regression, convert the prediction function values to the target dtype.
+        if self._estimator_type == "regressor" and not np.issubdtype(self.y_dtype_, np.integer):
+            ŷ_quantiles = ŷ_quantiles.astype(self.y_dtype_)
+        # Convert ŷ_quantiles to a pandas DataFrame if X is a pandas DataFrame.
+        if hasattr(X_df, "dtypes") and hasattr(X_df, "index"):
+            try:
+                import pandas as pd
+            except ImportError:
+                pass
+            else:
+                if self._estimator_type == "regressor":
+                    ŷ_quantiles_df = pd.DataFrame(ŷ_quantiles, index=X_df.index, columns=quantiles)
+                else:
+                    neg_df = pd.DataFrame(ŷ_quantiles[:, :, 0], index=X_df.index, columns=quantiles)
+                    pos_df = pd.DataFrame(ŷ_quantiles[:, :, 1], index=X_df.index, columns=quantiles)
+                    ŷ_quantiles_df = pd.concat(
+                        [neg_df, pos_df],
+                        axis=0,
+                        keys=self.classes_,
+                        names=["class", X_df.index.name],
+                    )
+                ŷ_quantiles_df.columns.name = "quantile"
+                return ŷ_quantiles_df
+        return ŷ_quantiles
 
+    @overload
+    def predict_interval(
+        self, X: FloatMatrix[F], *, coverage: float = 0.95
+    ) -> FloatMatrix[F] | FloatTensor[F]:
+        ...
+
+    @overload
+    def predict_interval(self, X: "pd.DataFrame", *, coverage: float = 0.95) -> "pd.DataFrame":
+        ...
+
+    def predict_interval(
+        self, X: "FloatMatrix[F] | pd.DataFrame", *, coverage: float = 0.95
+    ) -> "FloatMatrix[F] | FloatTensor[F] | pd.DataFrame":
+        """Predict conformally calibrated intervals."""
+        # Convert the coverage probability to lower and upper quantiles.
+        lb = (1 - coverage) / 2
+        ub = 1 - lb
+        # Compute the prediction interval with predict_quantiles.
+        ŷ_quantiles = self.predict_quantiles(X, quantiles=(lb, ub), priority="coverage")
+        return ŷ_quantiles
+
+    @overload
     def decision_function(self, X: FloatMatrix[F]) -> FloatVector[F]:
-        """Evaluate this predictor's prediction function."""
+        ...
+
+    @overload
+    def decision_function(self, X: "pd.DataFrame") -> "pd.Series":
+        ...
+
+    def decision_function(self, X: "FloatMatrix[F] | pd.DataFrame") -> "FloatVector[F] | pd.Series":
+        """Evaluate the prediction function."""
         # Compute the point predictions ŷ(X).
+        check_is_fitted(self)
+        X, X_df = check_array(X, dtype=(np.float64, np.float32)), X
         ŷ: FloatVector[F]
         if self.primal_:
             # Apply the feature map φ and predict as ŷ(x) := φ(x)'β̂.
@@ -500,11 +669,72 @@ class NeoLSSVM(BaseEstimator):
             K = rbf_kernel(X, self.X_, gamma=0.5)
             b = np.sum(self.α̂_)
             ŷ = K @ self.α̂_ + b
+        # Convert to a pandas Series if the input was a pandas DataFrame.
+        if hasattr(X_df, "dtypes") and hasattr(X_df, "index"):
+            try:
+                import pandas as pd
+            except ImportError:
+                pass
+            else:
+                ŷ_series = pd.Series(ŷ, index=X_df.index)
+                return ŷ_series
         return ŷ
 
-    def predict(self, X: FloatMatrix[F]) -> GenericVector:
-        """Predict the output on a given dataset."""
+    @overload
+    def predict(
+        self, X: FloatMatrix[F], *, coverage: None = None, quantiles: None = None
+    ) -> FloatVector[F]:
+        ...
+
+    @overload
+    def predict(
+        self, X: FloatMatrix[F], *, coverage: float, quantiles: None = None
+    ) -> FloatMatrix[F]:
+        ...
+
+    @overload
+    def predict(
+        self, X: FloatMatrix[F], *, coverage: None = None, quantiles: npt.ArrayLike
+    ) -> FloatMatrix[F]:
+        ...
+
+    @overload
+    def predict(
+        self, X: "pd.DataFrame", *, coverage: None = None, quantiles: None = None
+    ) -> "pd.Series":
+        ...
+
+    @overload
+    def predict(
+        self, X: "pd.DataFrame", *, coverage: float, quantiles: None = None
+    ) -> "pd.DataFrame":
+        ...
+
+    @overload
+    def predict(
+        self, X: "pd.DataFrame", *, coverage: None = None, quantiles: npt.ArrayLike
+    ) -> "pd.DataFrame":
+        ...
+
+    def predict(
+        self,
+        X: "FloatMatrix[F] | pd.DataFrame",
+        *,
+        coverage: float | None = None,
+        quantiles: npt.ArrayLike | None = None,
+    ) -> "FloatVector[F] | pd.Series | FloatMatrix[F] | pd.DataFrame":
+        """Predict on a given dataset."""
+        # Return a prediction interval or quantiles if requested.
+        assert coverage is None or quantiles is None
+        if coverage is not None:
+            ŷ_interval = self.predict_interval(X, coverage=coverage)
+            return ŷ_interval
+        if quantiles is not None:
+            ŷ_quantiles = self.predict_quantiles(X, quantiles=quantiles)
+            return ŷ_quantiles
         # Compute the point predictions ŷ(X).
+        check_is_fitted(self)
+        X, X_df = check_array(X, dtype=(np.float64, np.float32)), X
         ŷ_df = self.decision_function(X)
         if self._estimator_type == "classifier":
             # For binary classification, round to the nearest class label. When the decision
@@ -518,34 +748,61 @@ class NeoLSSVM(BaseEstimator):
             # The decision function is the point prediction.
             ŷ = ŷ_df
         # Map back to the training target dtype.
-        ŷ = ŷ.astype(self.y_dtype_)
+        if not np.issubdtype(self.y_dtype_, np.integer):
+            ŷ = ŷ.astype(self.y_dtype_)
+        # Convert to a pandas Series if the input was a pandas DataFrame.
+        if hasattr(X_df, "dtypes") and hasattr(X_df, "index"):
+            try:
+                import pandas as pd
+            except ImportError:
+                pass
+            else:
+                ŷ_series = pd.Series(ŷ, index=X_df.index)
+                return ŷ_series
         return ŷ
 
+    @overload
+    def predict_proba(self, X: FloatMatrix[F]) -> "FloatVector[F] | FloatMatrix[F]":
+        ...
+
+    @overload
+    def predict_proba(self, X: "pd.DataFrame") -> "pd.Series | pd.DataFrame":
+        ...
+
     def predict_proba(
-        self,
-        X: FloatMatrix[F],
-        *,
-        confidence_interval: bool = False,
-        confidence_level: float = 0.95,
-    ) -> FloatVector[F] | FloatMatrix[F] | FloatTensor[F]:
+        self, X: "FloatMatrix[F] | pd.DataFrame"
+    ) -> "FloatVector[F] | FloatMatrix[F] | pd.Series | pd.DataFrame":
         """Predict the class probability or confidence interval."""
-        if confidence_interval:
-            # Return the confidence interval for classification or regression.
-            C = self.predict_confidence_interval(X, confidence_level=confidence_level)
-            return C
+        check_is_fitted(self)
+        X, X_df = check_array(X, dtype=(np.float64, np.float32)), X
+        ŷ_df = self.decision_function(X)
         if self._estimator_type == "classifier":
             # Return the class probabilities for classification.
-            ŷ_classification = self.decision_function(X)
-            p = self.predict_proba_calibrator_.transform(ŷ_classification)
-            P = np.hstack([1 - p[:, np.newaxis], p[:, np.newaxis]])
+            proba_pos = self.predict_proba_calibrator_.transform(ŷ_df)
+            proba = np.hstack([1 - proba_pos[:, np.newaxis], proba_pos[:, np.newaxis]])
         else:
-            # Return the point predictions for regression.
-            ŷ_regression = self.predict(X)
-            P = ŷ_regression
-        return P
+            # Map back to the training target dtype unless that would cause loss of precision.
+            proba = ŷ_df
+            if not np.issubdtype(self.y_dtype_, np.integer):
+                proba = ŷ_df.astype(self.y_dtype_)
+        # Convert proba to a pandas Series or DataFrame if X is a pandas DataFrame.
+        if hasattr(X_df, "dtypes") and hasattr(X_df, "index"):
+            try:
+                import pandas as pd
+            except ImportError:
+                pass
+            else:
+                if self._estimator_type == "regressor":
+                    return pd.Series(proba, index=X_df.index)
+                if self._estimator_type == "classifier":
+                    return pd.DataFrame(proba, index=X_df.index, columns=self.classes_)
+        return proba
 
     def score(
-        self, X: FloatMatrix[F], y: GenericVector, sample_weight: FloatVector[F] | None = None
+        self,
+        X: "FloatMatrix[F] | pd.DataFrame",
+        y: "GenericVector | pd.Series",
+        sample_weight: FloatVector[F] | None = None,
     ) -> float:
         """Compute the accuracy or R² of this classifier or regressor."""
         ŷ = self.predict(X)
