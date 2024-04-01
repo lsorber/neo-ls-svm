@@ -1,3 +1,9 @@
+## v0.3.0 (2024-04-01)
+
+### Feat
+
+- add conformal quantile prediction (#25)
+
 ## v0.2.0 (2024-02-25)
 
 ### Feat
